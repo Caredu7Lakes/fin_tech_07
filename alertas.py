@@ -61,10 +61,10 @@ def _enviar_email(assunto, corpo):
     """
     usuario = os.getenv("EMAIL_USER")
     senha   = os.getenv("EMAIL_PASSWORD")
-    destino = os.getenv("EMAIL_TO", usuario)      # default: manda para si mesmo
+    destino = os.getenv("EMAIL_TO") or usuario      # default: manda para si mesmo
 
-    if not usuario or not senha:
-        print("[alertas] EMAIL_USER/EMAIL_PASSWORD ausentes — e-mail não enviado.")
+    if not usuario or not senha or not destino:
+        print("[alertas] credenciais de e-mail ausentes/incompletas — e-mail não enviado.")
         return
 
     msg = EmailMessage()
