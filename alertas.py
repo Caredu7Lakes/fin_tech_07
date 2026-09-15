@@ -39,7 +39,7 @@ from email.message import EmailMessage
 LIMITE_VEIC_MIN = 4.0     # veículos: alerta se MENOR taxa do ranking < 4,00% a.a.
 LIMITE_VEIC_MAX = 33.0    # veículos: alerta se MAIOR taxa do ranking > 33,00% a.a.
 LIMITE_IMOVEL   = 12.0    # imóvel:   alerta se taxa < 12,00% a.a.
-LIMITE_DOLAR    = 4.90    # dólar:    alerta se venda < R$ 4,90
+LIMITE_DOLAR    = 4.90
 
 # --- Apple SMTP ---
 SMTP_SERVIDOR = "smtp.mail.me.com"
