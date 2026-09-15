@@ -38,6 +38,7 @@ import matplotlib.pyplot as plt   # importado DEPOIS de definir o backend
 from datetime import date
 
 from alertas import verificar_alertas   # módulo de alertas por e-mail
+from db import gravar_no_banco          # camada Postgres (além dos CSVs)
 
 
 # ===========================================================================
@@ -370,6 +371,9 @@ def main():
 
     ranking.to_csv(caminho("ranking_veiculos", "csv"), index=False)
     grafico_ranking(ranking, "ranking_veiculos")
+
+    # --- grava no Postgres (além dos CSVs, que seguem versionados) ---
+    gravar_no_banco(imob, veic, dolar_diario, dolar_m, ranking, historico)
 
     # --- alertas por e-mail (dispara só no cruzamento de limiar) ---
     verificar_alertas(ranking, imob, dolar_diario)

@@ -29,6 +29,7 @@ jobs:
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}   # opcional; se vazio, envia para EMAIL_USER
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: python coleta_bcb.py
 
       - name: Commitar CSVs e PNGs atualizados
