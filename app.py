@@ -96,7 +96,7 @@ else:
 #  BLOCO B — Juros (imóvel e veículos) x dólar, mesma base mensal
 # ===========================================================================
 
-st.header("B) Custo de crédito x dólar (base mensal)")
+st.header("B) Juros imóvel x juros veículos (base mensal)")
 
 if not serie.empty and not dolar_m.empty:
     # juros: formato longo -> largo (uma coluna por modalidade)
