@@ -70,10 +70,11 @@ TOP_RANKING       = 36                # nº de instituições no ranking
 # --- Paginação da OData (recusa $filter; puxamos tudo e filtramos no pandas) ---
 PAGINA_ODATA      = 1000          # linhas por página ($top máximo seguro; 5000 dá 400)
 MAX_PAGINAS_ODATA = 10            # trava de segurança: até 10.000 linhas
+MAX_PAGINAS_IMOVEL = 40           # ConsultaUnificada é maior (PF+PJ, 26 modalidades)
 
 # --- Dólar (PTAX): início da série e formato de data MM-DD-AAAA ---
-PTAX_ANO_INICIAL  = 1995
-PTAX_DATA_INICIAL = "01-01-1995"
+PTAX_ANO_INICIAL  = 1984
+PTAX_DATA_INICIAL = "11-28-1984"
 
 # --- Retry / timeout das chamadas HTTP ---
 TIMEOUT_PADRAO    = 120           # s — o BC às vezes é lento
@@ -274,6 +275,88 @@ def atualizar_historico_ranking(df_veic_pf):
 
 
 # ===========================================================================
+#  IMÓVEL — ranking por instituição, POR MODALIDADE (indexador)
+#  Fonte: coleção ConsultaUnificada (a de recursos livres não tem imobiliário).
+#  São 6 modalidades (mercado/regulado × Prefixado/IPCA/TR); mantemos todas
+#  separadas para o usuário comparar cada indexador.
+# ===========================================================================
+
+def baixar_imovel_pf():
+    """
+    Baixa as linhas de financiamento imobiliário (PF) da coleção
+    ConsultaUnificada, uma vez. Mesma técnica dos veículos: $select+$skip
+    paginado (a coleção também recusa $filter) e filtro no pandas — aqui,
+    Segmento PF e Modalidade contendo 'imobiliário' (pega as 6 modalidades).
+    """
+    colunas = (f"InicioPeriodo,FimPeriodo,{CAMPO_SEGMENTO},{CAMPO_MODALIDADE},"
+               f"{CAMPO_INSTITUICAO},{CAMPO_TAXA}")
+
+    lotes = []
+    for pagina in range(MAX_PAGINAS_IMOVEL):       # coleção maior -> mais páginas
+        lote = bcb_odata("ConsultaUnificada", **{
+            "$select": colunas,
+            "$top": PAGINA_ODATA,
+            "$skip": pagina * PAGINA_ODATA,
+        })
+        if lote.empty:
+            break
+        lotes.append(lote)
+        if len(lote) < PAGINA_ODATA:
+            break
+    df = pd.concat(lotes, ignore_index=True)
+
+    # ConsultaUnificada usa "Pessoa Física" (capitalização normal), diferente
+    # da coleção de veículos que usa "PESSOA FÍSICA". Comparo sem diferenciar
+    # maiúsculas para casar nas duas grafias.
+    eh_pf   = df[CAMPO_SEGMENTO].str.upper() == SEGMENTO_PF
+    eh_imob = df[CAMPO_MODALIDADE].str.contains("imobiliário", case=False, na=False)
+    return df[eh_pf & eh_imob].copy()
+
+
+def ranking_imovel_atual(df_imovel_pf):
+    """
+    Foto do momento: por MODALIDADE (indexador), as menores taxas por
+    instituição na semana mais recente. Mantém a coluna Modalidade para o
+    seletor do dashboard. Uma linha por (modalidade, instituição).
+    """
+    df = df_imovel_pf[df_imovel_pf["InicioPeriodo"] == df_imovel_pf["InicioPeriodo"].max()]
+    df = (df.sort_values(CAMPO_TAXA)
+            .drop_duplicates(subset=[CAMPO_MODALIDADE, CAMPO_INSTITUICAO], keep="first"))
+    return (df.sort_values([CAMPO_MODALIDADE, CAMPO_TAXA])
+              [["InicioPeriodo", "FimPeriodo", CAMPO_MODALIDADE,
+                CAMPO_INSTITUICAO, CAMPO_TAXA]]
+              .reset_index(drop=True))
+
+
+def atualizar_historico_imovel(df_imovel_pf):
+    """
+    Histórico acumulado do imóvel por (período, modalidade, instituição) — nunca
+    descarta o passado. Mesma lógica do histórico de veículos, mas com a
+    modalidade na chave (são 6 indexadores em paralelo).
+    """
+    csv = caminho("historico_ranking_imovel", "csv")
+    chave = ["InicioPeriodo", CAMPO_MODALIDADE, CAMPO_INSTITUICAO]
+
+    novo = (df_imovel_pf.sort_values(CAMPO_TAXA)
+                        .drop_duplicates(subset=chave, keep="first")
+                        [["InicioPeriodo", "FimPeriodo", CAMPO_MODALIDADE,
+                          CAMPO_INSTITUICAO, CAMPO_TAXA]]
+                        .copy())
+
+    if os.path.exists(csv):
+        antigo = pd.read_csv(csv)
+        combinado = pd.concat([antigo, novo], ignore_index=True)
+    else:
+        combinado = novo
+
+    combinado = (combinado.drop_duplicates(subset=chave, keep="last")
+                          .sort_values(["InicioPeriodo", CAMPO_MODALIDADE, CAMPO_TAXA])
+                          .reset_index(drop=True))
+    combinado.to_csv(csv, index=False)
+    return combinado
+
+
+# ===========================================================================
 #  GRÁFICOS
 # ===========================================================================
 
@@ -372,8 +455,15 @@ def main():
     ranking.to_csv(caminho("ranking_veiculos", "csv"), index=False)
     grafico_ranking(ranking, "ranking_veiculos")
 
+    # --- C) imóvel: ranking por instituição, nas 6 modalidades (indexadores) ---
+    imovel_pf      = baixar_imovel_pf()
+    ranking_imovel = ranking_imovel_atual(imovel_pf)
+    historico_imovel = atualizar_historico_imovel(imovel_pf)   # nunca descarta
+    ranking_imovel.to_csv(caminho("ranking_imovel", "csv"), index=False)
+
     # --- grava no Postgres (além dos CSVs, que seguem versionados) ---
-    gravar_no_banco(imob, veic, dolar_diario, dolar_m, ranking, historico)
+    gravar_no_banco(imob, veic, dolar_diario, dolar_m, ranking, historico,
+                    ranking_imovel, historico_imovel)
 
     # --- alertas por e-mail (dispara só no cruzamento de limiar) ---
     verificar_alertas(ranking, imob, dolar_diario)
@@ -381,8 +471,10 @@ def main():
     # --- resumo ---
     for nome, df in [("imobiliario", imob), ("veiculos", veic),
                      ("dolar_diario", dolar_diario), ("dolar_mensal", dolar_m),
-                     ("ranking", ranking), ("historico", historico)]:
-        print(f"{nome:14} → {df.shape}")
+                     ("ranking_veic", ranking), ("historico_veic", historico),
+                     ("ranking_imovel", ranking_imovel),
+                     ("historico_imovel", historico_imovel)]:
+        print(f"{nome:16} → {df.shape}")
 
 
 if __name__ == "__main__":

@@ -60,9 +60,10 @@ st.markdown(
 )
 
 # --- carrega os dados uma vez ---
-ranking   = carregar("ranking_veiculos")
-serie     = carregar("serie_juros")
-dolar_m   = carregar("dolar_mensal")
+ranking        = carregar("ranking_veiculos")
+serie          = carregar("serie_juros")
+dolar_m        = carregar("dolar_mensal")
+ranking_imovel = carregar("ranking_imovel")
 
 
 # ===========================================================================
@@ -110,10 +111,64 @@ else:
 
 
 # ===========================================================================
-#  BLOCO B — Juros (imóvel e veículos) x dólar, mesma base mensal
+#  BLOCO B — Imóvel por instituição, por indexador (seletor)
 # ===========================================================================
 
-st.header("B) Juros imóvel x juros veículos (base mensal)")
+st.header("B) Financiamento imobiliário por instituição")
+
+if not ranking_imovel.empty:
+    import altair as alt
+
+    modalidades = sorted(ranking_imovel["modalidade"].unique())
+
+    # Aviso explícito: o financiamento de imóvel tem VÁRIOS indexadores, que não
+    # são comparáveis entre si. O usuário precisa escolher qual quer ver.
+    st.info(
+        f"O financiamento imobiliário tem **{len(modalidades)} modalidades** "
+        "(taxas de mercado e reguladas, indexadas a Prefixado, IPCA ou TR). "
+        "Elas **não são comparáveis entre si** — escolha uma no seletor abaixo "
+        "para ver o ranking das instituições naquela modalidade. Todas as "
+        "opções estão disponíveis no seletor."
+    )
+
+    escolha = st.selectbox("Escolha a modalidade (indexador):", modalidades)
+
+    imv = ranking_imovel[ranking_imovel["modalidade"] == escolha].copy()
+    imv = imv.sort_values("taxa_aa").reset_index(drop=True)
+
+    if not imv.empty:
+        ini = pd.to_datetime(imv["inicio_periodo"].iloc[0]).strftime("%d/%m/%Y")
+        fim = pd.to_datetime(imv["fim_periodo"].iloc[0]).strftime("%d/%m/%Y")
+        st.caption(f"Semana de referência: {ini} a {fim} · {len(imv)} instituições")
+
+        menor_i = float(imv["taxa_aa"].min())
+        maior_i = float(imv["taxa_aa"].max())
+        d1, d2, d3 = st.columns(3)
+        d1.metric("Menor taxa", f"{menor_i:.2f}% a.a.")
+        d2.metric("Maior taxa", f"{maior_i:.2f}% a.a.")
+        d3.metric("Spread (maior − menor)", f"{maior_i - menor_i:.2f} p.p.")
+
+        g_imv = (
+            alt.Chart(imv)
+            .mark_bar(color="#54A24B")
+            .encode(
+                x=alt.X("taxa_aa:Q", title="Taxa ao ano (%)"),
+                y=alt.Y("instituicao:N", sort=alt.EncodingSortField(
+                    field="taxa_aa", order="ascending"), title=None),
+                tooltip=["instituicao", "taxa_aa"],
+            )
+            .properties(height=max(300, 26 * len(imv)))
+        )
+        st.altair_chart(g_imv, use_container_width=True)
+else:
+    st.info("Sem dados de imóvel ainda.")
+
+
+# ===========================================================================
+#  BLOCO C — Juros (imóvel e veículos) x dólar, mesma base mensal
+# ===========================================================================
+
+st.header("C) Juros imóvel x juros veículos (base mensal)")
 
 if not serie.empty and not dolar_m.empty:
     # juros: formato longo -> largo (uma coluna por modalidade)
@@ -142,7 +197,7 @@ else:
 #  BLOCO C — Provocação (fase 2)
 # ===========================================================================
 
-st.header("C) Próximo passo")
+st.header("D) Próximo passo")
 st.info(
     "**O próximo impacto é o endividamento das famílias.** Estes custos de "
     "crédito se traduzem em comprometimento de renda — a fase 2 do projeto "

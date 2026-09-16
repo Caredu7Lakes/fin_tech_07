@@ -72,6 +72,25 @@ DDL = [
         taxa_aa        NUMERIC,
         PRIMARY KEY (inicio_periodo, instituicao)
     )""",
+    # IMÓVEL — ranking atual por instituição E por modalidade (6 indexadores).
+    # Snapshot: substituído a cada execução. PK inclui a modalidade.
+    """CREATE TABLE IF NOT EXISTS ranking_imovel (
+        modalidade     TEXT NOT NULL,
+        instituicao    TEXT NOT NULL,
+        inicio_periodo DATE,
+        fim_periodo    DATE,
+        taxa_aa        NUMERIC,
+        PRIMARY KEY (modalidade, instituicao)
+    )""",
+    # IMÓVEL — histórico acumulado por (período, modalidade, instituição).
+    """CREATE TABLE IF NOT EXISTS historico_imovel (
+        inicio_periodo DATE NOT NULL,
+        modalidade     TEXT NOT NULL,
+        instituicao    TEXT NOT NULL,
+        fim_periodo    DATE,
+        taxa_aa        NUMERIC,
+        PRIMARY KEY (inicio_periodo, modalidade, instituicao)
+    )""",
 ]
 
 
@@ -117,11 +136,13 @@ def _substituir(engine, df, tabela):
     df.to_sql(tabela, engine, if_exists="append", index=False)
 
 
-def gravar_no_banco(imob, veic, dolar_diario, dolar_m, ranking, historico):
+def gravar_no_banco(imob, veic, dolar_diario, dolar_m, ranking, historico,
+                    ranking_imovel=None, historico_imovel=None):
     """
-    Cria o schema (se preciso) e grava as seis fontes no Postgres. Se
-    DATABASE_URL não estiver definida, avisa e retorna — os CSVs seguem
-    normais, então rodar sem banco não quebra o pipeline.
+    Cria o schema (se preciso) e grava as fontes no Postgres. Se DATABASE_URL
+    não estiver definida, avisa e retorna — os CSVs seguem normais, então rodar
+    sem banco não quebra o pipeline.
+    ranking_imovel/historico_imovel são opcionais (imóvel por instituição).
     Renomeia as colunas do pipeline (camelCase/PT) para os nomes tidy das
     tabelas antes de gravar.
     """
@@ -178,5 +199,23 @@ def gravar_no_banco(imob, veic, dolar_diario, dolar_m, ranking, historico):
     hist["fim_periodo"]    = pd.to_datetime(hist["fim_periodo"]).dt.normalize()
     _upsert(engine, hist[["inicio_periodo", "instituicao", "fim_periodo", "taxa_aa"]],
             "historico_ranking", ["inicio_periodo", "instituicao"])
+
+    # --- IMÓVEL (por modalidade) ---
+    renomear_imovel = {"InicioPeriodo": "inicio_periodo", "FimPeriodo": "fim_periodo",
+                       "Modalidade": "modalidade", "InstituicaoFinanceira": "instituicao",
+                       "TaxaJurosAoAno": "taxa_aa"}
+    if ranking_imovel is not None and not ranking_imovel.empty:
+        ri = ranking_imovel.rename(columns=renomear_imovel)
+        ri["inicio_periodo"] = pd.to_datetime(ri["inicio_periodo"]).dt.normalize()
+        ri["fim_periodo"]    = pd.to_datetime(ri["fim_periodo"]).dt.normalize()
+        _substituir(engine, ri[["modalidade", "instituicao", "inicio_periodo",
+                                "fim_periodo", "taxa_aa"]], "ranking_imovel")
+    if historico_imovel is not None and not historico_imovel.empty:
+        hi = historico_imovel.rename(columns=renomear_imovel)
+        hi["inicio_periodo"] = pd.to_datetime(hi["inicio_periodo"]).dt.normalize()
+        hi["fim_periodo"]    = pd.to_datetime(hi["fim_periodo"]).dt.normalize()
+        _upsert(engine, hi[["inicio_periodo", "modalidade", "instituicao",
+                            "fim_periodo", "taxa_aa"]],
+                "historico_imovel", ["inicio_periodo", "modalidade", "instituicao"])
 
     print("[db] Postgres atualizado.")
