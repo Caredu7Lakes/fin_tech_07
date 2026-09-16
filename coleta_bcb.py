@@ -72,8 +72,8 @@ PAGINA_ODATA      = 1000          # linhas por página ($top máximo seguro; 500
 MAX_PAGINAS_ODATA = 10            # trava de segurança: até 10.000 linhas
 
 # --- Dólar (PTAX): início da série e formato de data MM-DD-AAAA ---
-PTAX_ANO_INICIAL  = 1984
-PTAX_DATA_INICIAL = "11-28-1984"
+PTAX_ANO_INICIAL  = 1995
+PTAX_DATA_INICIAL = "01-01-1995"
 
 # --- Retry / timeout das chamadas HTTP ---
 TIMEOUT_PADRAO    = 120           # s — o BC às vezes é lento
