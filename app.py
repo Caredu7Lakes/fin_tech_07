@@ -79,15 +79,32 @@ if not ranking.empty:
 
     ranking = ranking.sort_values("taxa_aa").reset_index(drop=True)
 
-    # destaque: a instituição mais barata
-    menor = ranking.iloc[0]
-    st.metric("Instituição mais barata",
-              menor["instituicao"], f'{menor["taxa_aa"]:.2f}% a.a.')
+    # destaque: SPREAD entre a maior e a menor taxa da série (dispersão do
+    # mercado). Quanto maior o spread, mais vale comparar antes de contratar.
+    menor_v = float(ranking["taxa_aa"].min())
+    maior_v = float(ranking["taxa_aa"].max())
+    spread  = maior_v - menor_v
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Menor taxa", f"{menor_v:.2f}% a.a.")
+    c2.metric("Maior taxa", f"{maior_v:.2f}% a.a.")
+    c3.metric("Spread (maior − menor)", f"{spread:.2f} p.p.")
 
-    # gráfico de barras (menor no topo) — Streamlit desenha horizontal ao usar
-    # o índice como categoria.
-    graf = ranking.set_index("instituicao")["taxa_aa"]
-    st.bar_chart(graf, horizontal=True, height=700)
+    # gráfico de barras ORDENADO POR TAXA (menor no topo). O st.bar_chart
+    # reordena o eixo sozinho, então usamos Altair, que respeita a ordem
+    # definida em 'sort' pelo próprio valor da taxa.
+    import altair as alt
+    grafico = (
+        alt.Chart(ranking)
+        .mark_bar(color="#4C78A8")
+        .encode(
+            x=alt.X("taxa_aa:Q", title="Taxa ao ano (%)"),
+            y=alt.Y("instituicao:N", sort=alt.EncodingSortField(
+                field="taxa_aa", order="ascending"), title=None),
+            tooltip=["instituicao", "taxa_aa"],
+        )
+        .properties(height=760)
+    )
+    st.altair_chart(grafico, use_container_width=True)
 else:
     st.info("Sem dados de ranking ainda.")
 
