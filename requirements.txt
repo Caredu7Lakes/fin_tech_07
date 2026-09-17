@@ -4,3 +4,4 @@ matplotlib
 sqlalchemy
 psycopg2-binary
 streamlit
+yfinance
