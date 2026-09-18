@@ -33,7 +33,14 @@ def get_engine():
     Cria o engine uma vez (cache_resource) a partir de DATABASE_URL.
     No Streamlit Cloud, st.secrets expõe os secrets; localmente lê do ambiente.
     """
-    url = os.getenv("DATABASE_URL") or st.secrets.get("DATABASE_URL")
+    url = os.getenv("DATABASE_URL")
+    if not url:
+        # st.secrets lança exceção se não houver secrets.toml (rodando local).
+        # No Streamlit Cloud o secret existe; local usamos a variável de ambiente.
+        try:
+            url = st.secrets.get("DATABASE_URL")
+        except Exception:
+            url = None
     if not url:
         st.error("DATABASE_URL não definida. Configure nos Secrets do app.")
         st.stop()

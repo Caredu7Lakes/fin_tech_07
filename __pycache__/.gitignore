@@ -1,4 +1,17 @@
+# Python
 __pycache__/
 *.pyc
 .venv/
+venv/
+
+# Segredos e ambiente (NUNCA versionar)
 .env
+*.env
+.streamlit/secrets.toml
+
+# Scripts temporários de teste/inspeção
+_tmp*.py
+
+# OS
+.DS_Store
+Thumbs.db
