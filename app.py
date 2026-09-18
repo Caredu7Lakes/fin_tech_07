@@ -65,6 +65,16 @@ serie          = carregar("serie_juros")
 dolar_m        = carregar("dolar_mensal")
 ranking_imovel = carregar("ranking_imovel")
 
+# ML: anomalias e subsídio (podem não existir se o pipeline ML ainda não rodou)
+def carregar_opcional(tabela):
+    try:
+        return carregar(tabela)
+    except Exception:
+        return pd.DataFrame()
+
+anomalias_df = carregar_opcional("anomalias")
+subsidio_df  = carregar_opcional("subsidio_veiculos")
+
 
 # ===========================================================================
 #  BLOCO A — Ranking atual das instituições
@@ -197,7 +207,62 @@ else:
 #  BLOCO C — Provocação (fase 2)
 # ===========================================================================
 
-st.header("D) Próximo passo")
+st.header("D) Análise avançada — subsídio e anomalias")
+
+st.caption(
+    "Camada analítica sobre os dados. **Nota honesta:** testamos prever a "
+    "direção das taxas com machine learning (Random Forest sobre fundamentos "
+    "macro e fiscais); o modelo **não superou** um baseline de inércia — juros "
+    "de curto prazo são dominados por inércia e não se mostraram previsíveis "
+    "com esses dados. O que funciona e tem valor está abaixo: detecção de "
+    "eventos atípicos e o indicador de subsídio."
+)
+
+# --- Subsídio de veículos (menor taxa − Selic) ---
+st.subheader("Subsídio no crédito de veículos")
+if not subsidio_df.empty:
+    import altair as alt
+    sub = subsidio_df.copy()
+    sub["data"] = pd.to_datetime(sub["data"])
+    sub = sub.sort_values("data")
+    ultimo = float(sub["subsidio_veiculos"].iloc[-1])
+    st.metric("Subsídio atual (menor taxa − Selic)", f"{ultimo:.2f} p.p.",
+              help="Negativo = a menor taxa de veículos está abaixo da Selic, "
+                   "sinal de subsídio (banco/montadora emprestando abaixo do "
+                   "custo de captação).")
+    linha = (alt.Chart(sub).mark_line(color="#E45756", point=True)
+             .encode(x=alt.X("data:T", title=None),
+                     y=alt.Y("subsidio_veiculos:Q", title="Menor taxa − Selic (p.p.)"),
+                     tooltip=["data:T", "subsidio_veiculos:Q"]))
+    st.altair_chart(linha, use_container_width=True)
+    st.caption("Quanto mais negativo, maior o subsídio. Sua variação sinaliza "
+               "mudança na política de subsídio das montadoras/bancos.")
+else:
+    st.info("Subsídio ainda não disponível (pipeline ML não rodou).")
+
+# --- Anomalias detectadas ---
+st.subheader("Eventos atípicos detectados")
+if not anomalias_df.empty:
+    an = anomalias_df.copy()
+    an["data"] = pd.to_datetime(an["data"])
+    st.caption(f"{len(an)} anomalias detectadas (saltos com |z| > 3 na variação "
+               "diária). Os maiores coincidem com eventos econômicos reais.")
+    maiores = (an.reindex(an["z_score"].abs().sort_values(ascending=False).index)
+                 .head(10)[["data", "serie", "variacao", "z_score"]]
+                 .reset_index(drop=True))
+    maiores["data"] = maiores["data"].dt.strftime("%d/%m/%Y")
+    st.dataframe(maiores, use_container_width=True, hide_index=True)
+    st.caption("Ex.: jan/1999 (dólar, fim da âncora cambial), mar/2020 "
+               "(pandemia), mai/2017 (Joesley Day), set/2008 (crise/soja).")
+else:
+    st.info("Anomalias ainda não disponíveis (pipeline ML não rodou).")
+
+
+# ===========================================================================
+#  BLOCO E — Provocação (fase 2)
+# ===========================================================================
+
+st.header("E) Próximo passo")
 st.info(
     "**O próximo impacto é o endividamento das famílias.** Estes custos de "
     "crédito se traduzem em comprometimento de renda — a fase 2 do projeto "

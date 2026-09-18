@@ -21,6 +21,7 @@ Ressalvas conhecidas:
 
 import io
 import os
+import time
 import pandas as pd
 import requests
 import urllib3
@@ -101,8 +102,102 @@ def carregar_soja():
     return soja
 
 
+# ===========================================================================
+#  ENDIVIDAMENTO / COMPROMETIMENTO DE RENDA (demanda por crédito)
+#  Séries mensais do SGS. Lag natural: publicadas ~2 meses após o mês de ref.
+# ===========================================================================
+
+SGS_COMPROMETIMENTO = 29034   # % da renda mensal comprometida com serviço da dívida
+SGS_ENDIVIDAMENTO   = 29037   # dívida total / renda acumulada 12 meses (%)
+
+
+def _sgs(codigo, nome_coluna):
+    """Baixa uma série mensal do SGS -> DataFrame ['data', nome_coluna]."""
+    url = f"https://api.bcb.gov.br/dados/serie/bcdata.sgs.{codigo}/dados"
+    try:
+        r = requests.get(url, params={"formato": "json"}, timeout=60)
+        r.raise_for_status()
+        df = pd.DataFrame(r.json())
+    except Exception as e:
+        print(f"[features] SGS {codigo}: falha ({e}) — pulando.")
+        return pd.DataFrame(columns=["data", nome_coluna])
+    df["data"] = pd.to_datetime(df["data"], format="%d/%m/%Y")
+    df[nome_coluna] = pd.to_numeric(df["valor"])
+    return df[["data", nome_coluna]].dropna().sort_values("data").reset_index(drop=True)
+
+
+def carregar_endividamento():
+    """Coleta comprometimento de renda (29034) e endividamento (29037)."""
+    comp = _sgs(SGS_COMPROMETIMENTO, "comprometimento_renda")
+    endv = _sgs(SGS_ENDIVIDAMENTO, "endividamento")
+    if not comp.empty:
+        comp.to_csv(_caminho("comprometimento_renda"), index=False)
+    if not endv.empty:
+        endv.to_csv(_caminho("endividamento"), index=False)
+    return comp, endv
+
+
+SGS_SELIC_META = 432   # Meta Selic (% a.a.) — série DIÁRIA no SGS
+
+
+def carregar_selic():
+    """
+    Coleta a meta Selic (432). É série DIÁRIA no SGS, e a API limita consultas
+    diárias a 10 anos por chamada — então buscamos por janelas e juntamos.
+    """
+    from datetime import date
+    partes = []
+    ano_ini = 1996
+    hoje = date.today()
+    for ini in range(ano_ini, hoje.year + 1, 9):        # janelas de 9 anos (< limite de 10)
+        fim = min(ini + 8, hoje.year)
+        url = f"https://api.bcb.gov.br/dados/serie/bcdata.sgs.{SGS_SELIC_META}/dados"
+        params = {"formato": "json",
+                  "dataInicial": f"01/01/{ini}",
+                  "dataFinal": f"31/12/{fim}"}
+        try:
+            for tentativa in range(3):                  # retry: janela às vezes dá 502/vazio
+                r = requests.get(url, params=params, timeout=60)
+                r.raise_for_status()
+                dados = r.json()
+                if dados:                                # não-vazio: ok
+                    partes.append(pd.DataFrame(dados))
+                    break
+                time.sleep(5)
+        except Exception as e:
+            print(f"[features] Selic {ini}-{fim}: falha ({e}) — pulando janela.")
+    if not partes:
+        print("[features] Selic: nenhuma janela retornou — pulando.")
+        return pd.DataFrame(columns=["data", "selic_meta"])
+    df = pd.concat(partes, ignore_index=True)
+    df["data"] = pd.to_datetime(df["data"], format="%d/%m/%Y")
+    df["selic_meta"] = pd.to_numeric(df["valor"])
+    df = (df[["data", "selic_meta"]].drop_duplicates("data")
+            .dropna().sort_values("data").reset_index(drop=True))
+    df.to_csv(_caminho("selic_meta"), index=False)
+    return df
+
+
+SGS_DBGG = 4536   # Dívida Bruta do Governo Geral (% PIB) — fundamento fiscal
+
+
+def carregar_dbgg():
+    """Coleta a Dívida Bruta do Governo Geral (4536, % PIB, mensal)."""
+    dbgg = _sgs(SGS_DBGG, "dbgg_pib")
+    if not dbgg.empty:
+        dbgg.to_csv(_caminho("dbgg"), index=False)
+    return dbgg
+
+
 if __name__ == "__main__":
     n = carregar_ntnb()
     s = carregar_soja()
-    print(f"ntnb_2035 → {n.shape}")
-    print(f"soja_usd  → {s.shape}")
+    comp, endv = carregar_endividamento()
+    selic = carregar_selic()
+    dbgg = carregar_dbgg()
+    print(f"ntnb_2035            → {n.shape}")
+    print(f"soja_usd             → {s.shape}")
+    print(f"comprometimento_renda → {comp.shape}")
+    print(f"endividamento        → {endv.shape}")
+    print(f"selic_meta           → {selic.shape}")
+    print(f"dbgg                 → {dbgg.shape}")

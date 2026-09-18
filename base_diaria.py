@@ -9,12 +9,12 @@ diária, não semanal.
 
 Regras:
   - Grade temporal: cada InicioPeriodo distinto do ranking de veículos (1 por dia útil).
-  - spread_veiculos: max − min das taxas daquele dia (varejo).
+  - subsidio_veiculos: menor taxa de veiculos − Selic meta (forward-fill). Negativo = subsidio.
   - dolar, ntnb_2035, soja: valor do próprio dia; se não houver (feriado/fim de
     semana), o último valor anterior disponível (forward-fill).
   - juros mensais (imóvel/veículos): forward-fill do mês vigente.
 
-Saída: dados/base_diaria.csv — uma linha por dia, colunas: data, spread_veiculos,
+Saída: dados/base_diaria.csv — uma linha por dia, colunas: data, subsidio_veiculos,
 dolar, ntnb_2035, soja, juro_imovel, juro_veiculos.
 """
 
@@ -44,14 +44,15 @@ def _valor_no_dia(serie, col, dias):
 def montar_base_diaria():
     # --- grade diária = dias distintos do ranking de veículos ---
     hist = _ler("historico_ranking_veiculos", parse_dates=["InicioPeriodo"])
-    spread = (hist.groupby("InicioPeriodo")["TaxaJurosAoAno"]
-                  .agg(lambda x: x.max() - x.min())
-                  .reset_index()
-                  .rename(columns={"InicioPeriodo": "data",
-                                   "TaxaJurosAoAno": "spread_veiculos"})
-                  .sort_values("data")
-                  .reset_index(drop=True))
-    base = spread.copy()
+    menor = (hist.groupby("InicioPeriodo")["TaxaJurosAoAno"].min()
+                 .reset_index()
+                 .rename(columns={"InicioPeriodo": "data", "TaxaJurosAoAno": "menor_taxa"})
+                 .sort_values("data"))
+    # subsídio = menor taxa de veículos − Selic meta vigente (forward-fill)
+    selic = _ler("selic_meta", parse_dates=["data"]).sort_values("data")
+    m = pd.merge_asof(menor, selic, on="data", direction="backward")
+    m["subsidio_veiculos"] = m["menor_taxa"] - m["selic_meta"]
+    base = m[["data", "subsidio_veiculos"]].copy()
     dias = base["data"].tolist()
 
     # --- séries diárias (valor do dia, com forward-fill) ---

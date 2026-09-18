@@ -94,6 +94,34 @@ um snapshot (tabela substituída a cada execução). Tabelas: `serie_juros`
 
 Sem `DATABASE_URL` definida, o pipeline segue normal e só os CSVs são gerados.
 
+## Camada analítica e ML (honesta)
+
+Além da coleta e visualização, o projeto tem uma camada analítica cujo valor
+está no que **funciona**, documentado com transparência metodológica:
+
+**Detecção de anomalias (funciona).** Um detector de z-score sobre janela móvel
+adaptativa (na variação diária, limiar |z|>3) marca saltos atípicos em dólar,
+NTN-B, soja e no subsídio de veículos. Os maiores saltos detectados coincidem
+com eventos econômicos reais (jan/1999 câmbio, mar/2020 pandemia, mai/2017
+Joesley Day, set/2015 rebaixamento, set/2008 crise/soja) — validação de que o
+método captura sinal, não ruído.
+
+**Subsídio de veículos.** Indicador = menor taxa de veículos − Selic meta. Quando
+negativo, revela que bancos de montadora emprestam abaixo do custo de captação
+(subsídio). Sua variação sinaliza mudança na política de subsídio.
+
+**Previsão de direção (testada, não superou baseline).** Testamos prever a
+direção das taxas (sobe/cai/indefinido) com Random Forest sobre um conjunto
+completo de fundamentos — oferta (dólar, NTN-B, soja), demanda (endividamento e
+comprometimento de renda das famílias) e fiscal (dívida bruta do governo). Em
+todos os horizontes testados, o modelo **não superou** um baseline de inércia
+("repetir a direção atual"). Conclusão honesta: a direção do juro de curto prazo
+é dominada por inércia e não se mostrou previsível com esses dados. Porém a
+análise de importância confirmou que essas variáveis **explicam** o custo de
+crédito (câmbio, juro real, soja e demanda das famílias todos se relacionam com
+ele) — o modelo é bom explicador, mau preditor, um resultado comum e honesto em
+finanças. O classificador foi arquivado; a análise permanece.
+
 ## Estrutura
 
 ```
@@ -101,6 +129,9 @@ fin_tech_07/
 ├── coleta_bcb.py                     # script principal (coleta + gráficos + alertas)
 ├── alertas.py                        # e-mail por cruzamento de limiar (Apple SMTP)
 ├── db.py                             # camada Postgres (schema + upsert)
+├── features_macro.py                 # features macro (NTN-B, soja, Selic, endivid., dívida)
+├── base_diaria.py                    # base diária unificada (subsídio + features)
+├── anomalias.py                      # detecção de anomalias (z-score móvel)
 ├── inspecionar.py                    # confere campos da OData (rodar 1x)
 ├── requirements.txt
 ├── .gitignore

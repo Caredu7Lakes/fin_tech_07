@@ -465,6 +465,22 @@ def main():
     gravar_no_banco(imob, veic, dolar_diario, dolar_m, ranking, historico,
                     ranking_imovel, historico_imovel)
 
+    # --- D) pipeline ML: features macro -> base diária -> anomalias -> grava ---
+    # Cada etapa gera CSVs em dados/; falha de uma não derruba a coleta principal.
+    try:
+        import features_macro, base_diaria, anomalias
+        from db import gravar_ml
+        features_macro.carregar_ntnb()
+        features_macro.carregar_soja()
+        features_macro.carregar_endividamento()
+        features_macro.carregar_selic()
+        features_macro.carregar_dbgg()
+        base_diaria.montar_base_diaria()
+        anomalias.detectar()
+        gravar_ml()                       # grava anomalias + subsídio no Postgres
+    except Exception as e:
+        print(f"[ml] pipeline ML falhou ({e}) — coleta principal preservada.")
+
     # --- alertas por e-mail (dispara só no cruzamento de limiar) ---
     verificar_alertas(ranking, imob, dolar_diario)
 

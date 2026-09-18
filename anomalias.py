@@ -31,16 +31,27 @@ LIMIAR      = 3.0
 
 
 def _spread_diario():
-    """Spread de veículos por dia (max−min do ranking), do histórico do ranking."""
+    """
+    'Spread de subsídio' por dia = MENOR taxa de veículos − Selic meta vigente.
+    Quando negativo, indica subsídio (banco/montadora emprestando abaixo do
+    custo de captação). Sua variação é o sinal de anomalia relevante — muda
+    quando a política de subsídio muda, não com a dispersão entre bancos.
+    Selic (série de eventos) é alinhada por forward-fill ao dia do ranking.
+    """
     csv = os.path.join(PASTA, "historico_ranking_veiculos.csv")
-    if not os.path.exists(csv):
+    selic_csv = os.path.join(PASTA, "selic_meta.csv")
+    if not os.path.exists(csv) or not os.path.exists(selic_csv):
         return None
     h = pd.read_csv(csv, parse_dates=["InicioPeriodo"])
-    s = (h.groupby("InicioPeriodo")["TaxaJurosAoAno"]
-           .agg(lambda x: x.max() - x.min())
-           .reset_index()
-           .rename(columns={"InicioPeriodo": "data", "TaxaJurosAoAno": "valor"}))
-    return s.sort_values("data").reset_index(drop=True)
+    menor = (h.groupby("InicioPeriodo")["TaxaJurosAoAno"].min()
+              .reset_index()
+              .rename(columns={"InicioPeriodo": "data", "TaxaJurosAoAno": "menor_taxa"})
+              .sort_values("data"))
+    selic = pd.read_csv(selic_csv, parse_dates=["data"]).sort_values("data")
+    # forward-fill da Selic vigente em cada dia do ranking
+    merged = pd.merge_asof(menor, selic, on="data", direction="backward")
+    merged["valor"] = merged["menor_taxa"] - merged["selic_meta"]
+    return merged[["data", "valor"]].dropna().reset_index(drop=True)
 
 
 def _ler_serie(nome, col_data, col_valor):

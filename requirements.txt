@@ -6,3 +6,4 @@ psycopg2-binary
 streamlit
 yfinance
 prophet
+scikit-learn

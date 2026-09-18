@@ -22,6 +22,8 @@ import os
 import pandas as pd
 from sqlalchemy import create_engine, text
 
+PASTA = "dados"   # onde ficam os CSVs lidos por gravar_ml
+
 
 # ===========================================================================
 #  CONEXÃO
@@ -90,6 +92,20 @@ DDL = [
         fim_periodo    DATE,
         taxa_aa        NUMERIC,
         PRIMARY KEY (inicio_periodo, modalidade, instituicao)
+    )""",
+    # ANOMALIAS — eventos atípicos detectados (estágio ML de anomalia).
+    """CREATE TABLE IF NOT EXISTS anomalias (
+        data      DATE NOT NULL,
+        serie     TEXT NOT NULL,
+        variacao  NUMERIC,
+        z_score   NUMERIC,
+        aquecendo BOOLEAN,
+        PRIMARY KEY (data, serie)
+    )""",
+    # SUBSÍDIO — menor taxa de veículos menos a Selic, por dia (negativo = subsídio).
+    """CREATE TABLE IF NOT EXISTS subsidio_veiculos (
+        data              DATE PRIMARY KEY,
+        subsidio_veiculos NUMERIC
     )""",
 ]
 
@@ -219,3 +235,39 @@ def gravar_no_banco(imob, veic, dolar_diario, dolar_m, ranking, historico,
                 "historico_imovel", ["inicio_periodo", "modalidade", "instituicao"])
 
     print("[db] Postgres atualizado.")
+
+
+def gravar_ml():
+    """
+    Grava no Postgres os artefatos do ML lidos dos CSVs: anomalias detectadas
+    e o subsídio de veículos (menor taxa − Selic). Chamado após anomalias.py e
+    base_diaria.py terem gerado os CSVs. Sem DATABASE_URL, apenas avisa.
+    """
+    engine = get_engine()
+    if engine is None:
+        print("[db] DATABASE_URL ausente — ML não gravado (CSVs seguem normais).")
+        return
+    with engine.begin() as con:
+        for stmt in DDL:
+            con.execute(text(stmt))
+
+    # anomalias (data pode ter hora no dólar -> normaliza para o dia)
+    anom_csv = os.path.join(PASTA, "anomalias.csv")
+    if os.path.exists(anom_csv) and os.path.getsize(anom_csv) > 0:
+        an = pd.read_csv(anom_csv)
+        if not an.empty:
+            an["data"] = pd.to_datetime(an["data"]).dt.normalize()
+            an = an.drop_duplicates(subset=["data", "serie"], keep="last")
+            _substituir(engine, an[["data", "serie", "variacao", "z_score", "aquecendo"]],
+                        "anomalias")
+
+    # subsídio (da base diária)
+    base_csv = os.path.join(PASTA, "base_diaria.csv")
+    if os.path.exists(base_csv):
+        b = pd.read_csv(base_csv, parse_dates=["data"])
+        if "subsidio_veiculos" in b.columns:
+            sub = b[["data", "subsidio_veiculos"]].dropna()
+            sub["data"] = pd.to_datetime(sub["data"]).dt.normalize()
+            _upsert(engine, sub, "subsidio_veiculos", ["data"])
+
+    print("[db] ML (anomalias + subsídio) gravado no Postgres.")
